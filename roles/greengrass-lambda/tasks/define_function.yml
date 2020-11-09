@@ -1,5 +1,5 @@
 # Copyright © 2018 VMware, Inc. All Rights Reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: Apache-2.0 or GPL-3.0-only
 ---
 # This role upload a particular lambda function to AWS.
 
@@ -13,9 +13,11 @@
     lambda_arn_query: "Functions[?FunctionName=='{{ lambda.name }}'].FunctionArn | [0]"
   when: lambda_functions.changed and lambda_functions.rc == 0
 
-- name: Upload lambda source to S3 bucket
+- name: Upload lambda source to S3 bucket (first time)
   command: aws s3 cp {{ lambda.zip }} s3://{{ staging_s3_bucket }} --quiet
-  when: not skip_s3_uploads
+  when:
+    - lambda_arn is defined and not lambda_arn
+    - not skip_s3_uploads
 
 - name: Create the lambda
   command: aws lambda create-function --region {{ aws_region }}
@@ -27,6 +29,13 @@
     --runtime {{ lambda.runtime }}
   register: lambda_create
   when: lambda_arn is defined and not lambda_arn
+
+- name: Extract lambda function arn from created
+  set_fact:
+    lambda_arn: "{{ lambda_functions_json | json_query(lambda_arn_query)}}"
+  vars:
+    lambda_arn_query: "FunctionArn"
+  when: lambda_create.changed and lambda_create.rc == 0
 
 - name: List lambda versions
   command: >
@@ -40,6 +49,12 @@
   vars:
     version_query: "Versions[?Version=='{{ lambda.version }}'].FunctionArn | [0]"
   when: lambda_versions.changed and lambda_versions.rc == 0
+
+- name: Upload new lambda source to S3 bucket (updated version)
+  command: aws s3 cp {{ lambda.zip }} s3://{{ staging_s3_bucket }} --quiet
+  when:
+    - lambda_version_arn is defined and not lambda_version_arn
+    - not skip_s3_uploads
 
 - name: Update lambda code and publish a new version if not found
   command: aws lambda update-function-code
@@ -71,3 +86,18 @@
   set_fact:
     lambdas_updated: true
   when: update_code.changed
+
+- name: Record lambda details
+  block:
+    - name: Add lamba arn to collected lambda data entry
+      set_fact:
+        _entry: "{ '{{ lambda.name }}_arn': '{{ lambda_version_arn }}' }"
+      when: lambda_version_arn is defined
+    - name: Add lambda arn to collected lambda data
+      set_fact:
+        lambda_details: >-
+          {{ lambda_details | combine ( _entry ) }}
+      when: lambda_arn is defined
+  when:
+    - lambda_arn is defined
+    - lambda_details is defined

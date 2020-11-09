@@ -18,25 +18,32 @@ addons:
 
 before_install:
   - cp inventory.local inventory
-  - cp extra_vars.yml.ci extra_vars.yml
-  - sed -ri "s:AWS_ACCESS_KEY:$AWS_ACCESS_KEY:" extra_vars.yml
-  - sed -ri "s:AWS_SECRET_KEY:$AWS_SECRET_KEY:" extra_vars.yml
+  - mkdir -p group_vars/all
+  - cp extra_vars.yml.ci vars.yml
+  - sed -ri "s:AWS_ACCESS_KEY:$AWS_ACCESS_KEY:" vars.yml
+  - sed -ri "s:AWS_SECRET_KEY:$AWS_SECRET_KEY:" vars.yml
+  - mv vars.yml group_vars/all
 jobs:
   include:
     - stage: lint
-      script: >
-        ansible-playbook site.yml -i inventory --extra-vars "@extra_vars.yml"
-        --check --skip-tag greengrass-core
+      script:
+        - ansible-galaxy install -r requirements.yml -p roles
+        - >
+          ansible-playbook site.yml -i inventory
+          --check --skip-tag greengrass-core
     - stage: test_roles
       env:
         - AWS_ARGS=--no-verify-ssl
       script:
-        - ansible-playbook dev.yml -i inventory --extra-vars "@extra_vars.yml"
-        - cd roles/greengrass-init/tests
-# skip: SSL error        - ansible-playbook test.yml -i inventory -vv
+        - ansible-galaxy install -r requirements.yml -p roles
+        - >
+          ansible-playbook roles/greengrass-init/tests/test.yml
+          -i roles/greengrass-init/tests/inventory -vv || echo 'Not OK!'
     - stage: test_docker
       script:
-        - docker build -t vmware/ansible-aws-greengrass:test -f Dockerfile.testing .
+        - >
+          docker build -t vmware/ansible-aws-greengrass:test
+          -f Dockerfile.testing .
         - >
           docker run -it --rm vmware/ansible-aws-greengrass:test site.yml
-          -i inventory -v --extra-vars "@extra_vars.yml"
+          -i inventory -v

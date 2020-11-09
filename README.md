@@ -94,7 +94,7 @@ docker run -it -v $PWD:/code vmware/ansible-aws-greengrass
 
 ### Prerequisites
 
-* You'll need Ansible
+* You'll need Ansible (2.5+)
 * Before first run, you'll need AWS credentials with at least IAM, IoT, and
 Greengrass permissions, and most likely with S3 read/write
 * You must ensure the current Greengrass Core distribution is available on S3
@@ -141,7 +141,8 @@ ansible-playbook site.yml -i inventory --extra-vars "@extra_vars.yml" -kK --tags
 
 ## Documentation
 
-See code files for further documentation.
+See code files for further documentation.  The ```extra_vars.yml.sample``` file
+has sample settings for customization for your environment.
 
 ## Releases & Major Branches
 
