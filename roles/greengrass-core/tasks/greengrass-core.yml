@@ -1,5 +1,5 @@
 # Copyright © 2018 VMware, Inc. All Rights Reserved.
-# SPDX-License-Identifier: Apache-2.0
+# SPDX-License-Identifier: Apache-2.0 or GPL-3.0-only
 ---
 # This role installs greengrass core and configures for communication.
 - name: show core to install
@@ -59,6 +59,7 @@
   get_url:
     url: "{{ greengrass_package_url }}"
     dest: /tmp/greengrass-linux-x86-64-{{ greengrass_version }}.tar.gz
+    checksum: "{{ greengrass_checksum }}"
   register: download_greengrass
   retries: 5
   delay: 5
@@ -76,7 +77,6 @@
   when:
     - aws_access_key is defined
     - aws_secret_key is defined
-    - greengrass_package_url is undefined
     - greengrass_package_url is undefined
     - not ansible_check_mode
 
@@ -104,7 +104,7 @@
 
 - name: download-root-ca
   get_url:
-    url: "http://www.symantec.com/content/en/us/enterprise/verisign/roots/VeriSign-Class%203-Public-Primary-Certification-Authority-G5.pem"
+    url: "https://www.websecurity.digicert.com/content/dam/websitesecurity/digitalassets/desktop/pdfs/roots/VeriSign-Class%203-Public-Primary-Certification-Authority-G5.pem"
     dest: /greengrass/certs/root.ca.pem
     checksum: "{{ root_ca_checksum }}"
   register: download_root_ca
@@ -150,6 +150,43 @@
     remote_src: yes
   when: setup_stat.stat.exists
 
-- name: start-greengrass
-  command: /greengrass/ggc/packages/{{ greengrass_version }}/greengrassd start
+- name: copy systemd service unit
+  copy:
+    src: greengrassd.service
+    dest: /etc/systemd/system/greengrassd.service
+
+- name: Stop service greengrassd, if running
+  service:
+    name: greengrassd
+    state: stopped
   when: no_greengrass_start is undefined
+
+- name: Check for greengrass runtime log from prior installs
+  stat:
+    path: /greengrass/ggc/var/log/system/runtime.log
+  register: runtime_log_stat
+
+- name: Compress runtime log from prior runs, if any
+  archive:
+    path: /greengrass/ggc/var/log/system/runtime.log
+    dest: /greengrass/ggc/var/log/system/runtime.log.tar.gz
+    remove: yes
+  when: runtime_log_stat.stat.exists
+
+- name: start-greengrass
+  service:
+    name: greengrassd
+    enabled: yes
+    state: started
+  when: no_greengrass_start is undefined
+
+- name: wait for a success in the daemon log
+  wait_for:
+    path: /greengrass/ggc/var/log/system/runtime.log
+    search_regex: "{{ greengrass_core_success_message }}"
+    delay: 10
+    timeout: 60
+  register: wait_for_success
+  when:
+    - no_greengrass_start is undefined
+    - greengrass_wait_for_success
